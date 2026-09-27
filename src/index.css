@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tailwind v3 theme values are defined in tailwind.config.js. */
+
+:root {
+  --zen-void: #05070c;
+  --zen-navy: #0a0e18;
+  --zen-panel: #0d1220;
+  --zen-panel-2: #11172a;
+  --zen-line: rgba(160, 184, 224, 0.12);
+  --zen-line-strong: rgba(160, 184, 224, 0.22);
+  --zen-ink: #e9eef8;
+  --zen-mute: #7c8bab;
+  --zen-mute-2: #57638080;
+  --zen-cyan: #5cd8f0;
+  --zen-cyan-soft: #5cd8f033;
+  --zen-violet: #a78bfa;
+  --zen-violet-soft: #a78bfa26;
+  --zen-amber: #f0b45c;
+  --zen-green: #69e6a6;
+  --zen-red: #ff6b7a;
+  --zen-blue: #6aa7ff;
+  --font-display: "Space Grotesk", "IBM Plex Sans", ui-sans-serif, sans-serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, sans-serif;
+  --font-mono-zen: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--zen-void); scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--zen-void);
+  color: var(--zen-ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: var(--zen-cyan-soft); color: var(--zen-ink); }
+:focus-visible { outline: 1.5px solid var(--zen-cyan); outline-offset: 3px; }
+
+@layer components {
+  .panel {
+    @apply rounded-xl border;
+    background: linear-gradient(180deg, rgba(13,18,32,0.88), rgba(8,13,24,0.92));
+    border-color: var(--zen-line);
+    box-shadow: 0 10px 34px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.025);
+    backdrop-filter: blur(10px);
+  }
+  .panel-header { @apply flex items-center justify-between px-4 py-3 rounded-t-xl; border-bottom: 1px solid var(--zen-line); background: rgba(255,255,255,0.018); }
+  .panel-title { @apply text-xs font-mono font-semibold tracking-widest uppercase text-fsoc-dim; }
+  .telem-value { @apply font-mono text-sm tabular-nums; }
+  .status-ok { @apply text-fsoc-green; }
+  .status-warn { @apply text-fsoc-amber; }
+  .status-crit { @apply text-fsoc-red; }
+  .status-info { @apply text-fsoc-cyan; }
+  .btn-primary { @apply px-3 py-1.5 text-white text-xs font-mono rounded-lg transition-all duration-150; background: linear-gradient(135deg, #5cd8f0, #7a8cff); border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 0 20px rgba(92,216,240,0.12); }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 0 28px rgba(92,216,240,0.2); }
+  .btn-secondary { @apply px-3 py-1.5 bg-transparent text-fsoc-cyan text-xs font-mono rounded-lg transition-all duration-150; border: 1px solid var(--zen-line-strong); }
+  .btn-secondary:hover { background: rgba(92,216,240,0.06); border-color: rgba(92,216,240,0.35); transform: translateY(-1px); }
+  .btn-danger { @apply px-3 py-1.5 bg-red-900 hover:bg-red-700 text-red-200 text-xs font-mono rounded border border-red-700 transition-colors duration-150; }
+  .btn-amber { @apply px-3 py-1.5 bg-amber-900 hover:bg-amber-700 text-amber-200 text-xs font-mono rounded border border-amber-700 transition-colors duration-150; }
+  .btn-green { @apply px-3 py-1.5 bg-emerald-900 hover:bg-emerald-700 text-emerald-200 text-xs font-mono rounded border border-emerald-700 transition-colors duration-150; }
+  .glow-cyan { filter: drop-shadow(0 0 6px #00d4ff88); }
+  .link-active { stroke: #00d4ff; stroke-width: 2; stroke-dasharray: 8 4; animation: link-flow 1.5s linear infinite; }
+  .link-degraded { stroke: #ffb300; stroke-width: 1.5; stroke-dasharray: 4 4; animation: link-flow 0.8s linear infinite; }
+  .link-alternate { stroke: #00ff88; stroke-width: 1.5; stroke-dasharray: 6 3; animation: link-flow 2s linear infinite; }
+  .link-unavailable { stroke: #ff3333; stroke-width: 1; stroke-dasharray: 2 6; opacity: 0.5; }
+}
+
+@keyframes link-flow { 0% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -24; } }
+@keyframes beacon-pulse { 0%,100% { box-shadow: 0 0 4px #00d4ff; } 50% { box-shadow: 0 0 14px #00d4ff, 0 0 28px #00d4ff44; } }
+@keyframes anomaly-flash { 0%,100% { border-color: #ff3333; } 50% { border-color: #ff333388; } }
+.anomaly-border { animation: anomaly-flash 1s ease-in-out infinite; }
+
+@keyframes zen-float { 0%,100% { transform: translate3d(0,0,0) rotate(0deg); } 50% { transform: translate3d(0,-14px,0) rotate(0.6deg); } }
+@keyframes zen-drift-slow { 0%,100% { transform: translate3d(0,0,0); } 50% { transform: translate3d(6px,-8px,0); } }
+@keyframes zen-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes zen-rotate-rev { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+@keyframes zen-pulse-opacity { 0%,100% { opacity: 0.35; } 50% { opacity: 0.9; } }
+@keyframes zen-pulse-ring { 0% { transform: scale(0.85); opacity: 0.55; } 70%,100% { transform: scale(1.25); opacity: 0; } }
+@keyframes zen-beam-flow { from { stroke-dashoffset: 40; } to { stroke-dashoffset: 0; } }
+@keyframes zen-scan { 0% { transform: translateY(-100%); opacity: 0; } 10%,90% { opacity: 0.5; } 100% { transform: translateY(100%); opacity: 0; } }
+
+.zen-anim-float { animation: zen-float 7s ease-in-out infinite; }
+.zen-anim-drift { animation: zen-drift-slow 9s ease-in-out infinite; }
+.zen-anim-rotate-slow { animation: zen-rotate 46s linear infinite; transform-origin: center; }
+.zen-anim-rotate-slow-rev { animation: zen-rotate-rev 60s linear infinite; transform-origin: center; }
+.zen-anim-pulse { animation: zen-pulse-opacity 2.4s ease-in-out infinite; }
+.zen-anim-beam { animation: zen-beam-flow 1.1s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}
+
+/* Shared ZENITH / FSOC visual language */
+.fsoc-app-bg {
+  background:
+    radial-gradient(circle at 72% 10%, rgba(92,216,240,0.06), transparent 28%),
+    radial-gradient(circle at 20% 90%, rgba(167,139,250,0.045), transparent 26%),
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px),
+    var(--zen-void);
+  background-size: auto, auto, 42px 42px, 42px 42px, auto;
+}
+.fsoc-app-bg::before {
+  content: ''; position: fixed; inset: 0; pointer-events: none;
+  background: radial-gradient(circle at 50% 0%, transparent 0 32%, rgba(5,7,12,0.32) 78%, rgba(5,7,12,0.75));
+}
+.fsoc-title { font-family: var(--font-display); letter-spacing: -0.02em; }
+.fsoc-kicker { font-family: var(--font-mono-zen); font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--zen-mute); }
+.fsoc-chip { border: 1px solid var(--zen-line); background: rgba(255,255,255,.025); border-radius: 999px; }
