@@ -1,8 +1,8 @@
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { Fragment, useState } from 'react';
 import {
-  LayoutDashboard, Radio, Satellite, Brain, PlaySquare,
-  FlaskConical, Network, Settings, ArrowUpRight, RadioTower,
+  LayoutDashboard, Radio, Satellite, Brain,
+  FlaskConical, Network, RadioTower, Info,
 } from 'lucide-react';
 import clsx from 'clsx';
 import ZenithLogo from '../ZenithLogo';
@@ -12,10 +12,9 @@ const NAV_ITEMS = [
   { to: '/d1', icon: Radio, label: 'Ground FSOC', sub: 'Dashboard 1', group: 'dashboards' },
   { to: '/d2', icon: Satellite, label: 'Space FSOC', sub: 'Dashboard 2', group: 'dashboards' },
   { to: '/d3', icon: Brain, label: 'Intelligence', sub: 'Dashboard 3', group: 'dashboards' },
-  { to: '/runs', icon: PlaySquare, label: 'Simulation Runs', group: 'tools' },
   { to: '/testcases', icon: FlaskConical, label: 'Test Cases', group: 'tools' },
   { to: '/architecture', icon: Network, label: 'Architecture', group: 'tools' },
-  { to: '/settings', icon: Settings, label: 'Settings', group: 'tools' },
+  { to: '/about', icon: Info, label: 'About', group: 'tools' },
 ];
 
 export default function Sidebar() {
@@ -27,13 +26,6 @@ export default function Sidebar() {
         <Link to="/" className="block transition-opacity hover:opacity-90" title="Back to ZENITH">
           <ZenithLogo size={25} withWordmark withSubtitle />
         </Link>
-        <div className="mt-4 flex items-center justify-between rounded-full border border-[var(--zen-line)] bg-white/[0.025] px-3 py-1.5">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-1.5 w-1.5"><span className="absolute h-full w-full animate-ping rounded-full bg-[var(--zen-cyan)] opacity-50" /><span className="relative h-1.5 w-1.5 rounded-full bg-[var(--zen-cyan)]" /></span>
-            <span className="font-mono text-[9px] tracking-[0.16em] text-[var(--zen-mute)]">TESTBED ONLINE</span>
-          </div>
-          <span className="font-mono text-[8px] text-[var(--zen-mute-2)]">v1.0</span>
-        </div>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
@@ -82,12 +74,6 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
-
-      <div className="border-t border-[var(--zen-line)] px-4 py-3">
-        <Link to="/mode-select" className="flex items-center justify-between rounded-lg border border-[var(--zen-line)] bg-white/[0.02] px-3 py-2 text-[9px] font-mono uppercase tracking-wider text-[var(--zen-mute)] transition hover:border-[rgba(92,216,240,.3)] hover:text-[var(--zen-cyan)]">
-          <span>Change link geometry</span><ArrowUpRight size={12} />
-        </Link>
-      </div>
     </aside>
   );
 }

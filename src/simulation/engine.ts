@@ -12,7 +12,7 @@ import { GroundStation, Satellite, Debris, wavelengthIntersection } from '../typ
 import { Link, PATState, Route, LinkStatus, RouteChange, RouteChangeReason } from '../types/links';
 import { ObservableTelemetry, TelemetrySample, GroundTruth } from '../types/telemetry';
 import { ActiveDisturbance, DisturbanceType, DisturbanceEffect } from '../types/disturbances';
-import { computeDisturbanceEffect, combineEffects, createNullEffect } from './disturbances';
+import { computeDisturbanceEffect, combineEffects, createNullEffect, disturbanceBelongsToD2Mode } from './disturbances';
 import { tickPAT, createInitialPATState, computeBeaconJitter, FOV_TO_URAD } from './pat';
 import { tickSatellite, tickDebris, satCanvasPos, debrisCanvasPos, groundSatDistanceKm, elevationAngleDeg, hasGroundSatLOS, predictLOSWindowS, satSatDistanceKm, EARTH_RADIUS_CANVAS, debrisToPathDistanceKm, predictDebrisEtaS, DEBRIS_BLOCK_KM } from './orbital';
 import { computeLinkBudget, distanceKm, orbitalAngularVelocityRadS, clamp } from './physics';
@@ -80,6 +80,20 @@ export interface D2State {
   /** Sim time the direct path has been continuously healthy (for auto fail-back off a relay). */
   directHealthySinceS: number | null;
   lastRouteChange: RouteChange | null;
+  /**
+   * Ground↔Space and Space↔Space both stay live simultaneously — `linkType`
+   * only selects which one Dashboard 2's routing/PAT/disturbance UI is
+   * currently driving. This tracks the OTHER pair's own free-running PAT lock
+   * (undisturbed — disturbances only ever target the selected corridor) so
+   * its live connectivity can be shown at the same time, e.g. in the Overview
+   * system diagram.
+   */
+  secondaryPatState: PATState;
+  secondaryLink: Link | null;
+  secondaryPrevBeaconX: number;
+  secondaryPrevBeaconY: number;
+  /** Telemetry history for the OTHER (non-selected) link — lets D3 diagnose/predict/mitigate it independently, e.g. as its own sub-dashboard. */
+  secondaryTelemetryHistory: TelemetrySample[];
 }
 
 export const D2_REVERT_HOLD_S = 8;
@@ -146,7 +160,7 @@ export function defaultD1Nodes(): GroundStation[] {
   ];
 }
 
-export function defaultD2Config(): Omit<D2State, 'telemetryHistory' | 'phase' | 'prevBeaconX' | 'prevBeaconY' | 'alternateRoutes' | 'primaryLink' | 'activeRoute' | 'patState' | 'corridorPatState' | 'activeDisturbances' | 'manualPath' | 'directHealthySinceS' | 'lastRouteChange'> {
+export function defaultD2Config(): Omit<D2State, 'telemetryHistory' | 'phase' | 'prevBeaconX' | 'prevBeaconY' | 'alternateRoutes' | 'primaryLink' | 'activeRoute' | 'patState' | 'corridorPatState' | 'activeDisturbances' | 'manualPath' | 'directHealthySinceS' | 'lastRouteChange' | 'secondaryPatState' | 'secondaryLink' | 'secondaryPrevBeaconX' | 'secondaryPrevBeaconY' | 'secondaryTelemetryHistory'> {
   const gs: GroundStation = {
     id: 'gs_main',
     name: 'Ground Station Alpha',
@@ -671,6 +685,68 @@ export function tickD2(state: D2State, simTimeS: number, dtS: number, speed: num
     };
   }
 
+  // Ground↔Space and Space↔Space stay live together: compute the OTHER pair's
+  // connectivity every tick too (using the same physics), so switching which
+  // one Dashboard 2 is driving never leaves the other looking "dead" — e.g.
+  // the Overview system diagram shows both simultaneously. It free-runs its
+  // own PAT with no disturbance effect, since disturbances only ever target
+  // whichever corridor is currently selected.
+  const secondaryKind: 'ground_sat' | 'sat_sat' = state.linkType === 'sat_sat' ? 'ground_sat' : 'sat_sat';
+  const secNodeA = secondaryKind === 'sat_sat' ? satSource : gs;
+  const secNodeB = secondaryKind === 'sat_sat' ? satTarget : primarySat;
+  const secHasLOS = secNodeA && secNodeB
+    ? (secondaryKind === 'sat_sat' ? true : hasGroundSatLOS(gs, primarySat))
+    : false;
+  const secDistKm = secNodeA && secNodeB
+    ? (secondaryKind === 'sat_sat' ? satSatDistanceKm(satSource, satTarget!) : groundSatDistanceKm(gs, primarySat))
+    : 0;
+  const secElevDeg = secondaryKind === 'sat_sat' ? null : elevationAngleDeg(gs, primarySat);
+  const secCompat = secNodeA && secNodeB ? wavelengthIntersection(secNodeA.supportedWavelengths, secNodeB.supportedWavelengths) : [];
+  const secWavelength = secCompat[secCompat.length - 1] ?? null;
+  const secondaryPAT = tickPAT(state.secondaryPatState, createNullEffect(), simTimeS, dtS, phase);
+  const secBeaconJitter = computeBeaconJitter(
+    state.secondaryPrevBeaconX, state.secondaryPrevBeaconY,
+    secondaryPAT.beaconX, secondaryPAT.beaconY
+  );
+
+  let secondaryLink: Link | null = null;
+  if (secNodeA && secNodeB && secWavelength && secHasLOS) {
+    const secAtmLoss = secondaryKind === 'sat_sat' ? 0.1 : 0.5;
+    const secBudget = computeLinkBudget({
+      distanceKm: Math.max(secDistKm, 1),
+      wavelengthNm: secWavelength,
+      txPowerDbm: secNodeA.txPowerDbm,
+      txApertureDiamM: 0.3,
+      rxApertureDiamM: 0.15,
+      rxSensitivityDbm: secNodeB.rxSensitivityDbm,
+      atmosphericLossDb: secAtmLoss,
+      pointingErrorUrad: secondaryPAT.pointingErrorUrad,
+      beamDivergenceUrad: secNodeA.beamDivergenceUrad,
+    });
+    const secStatus: LinkStatus =
+      secBudget.linkMarginDb < 0 ? 'DISCONNECTED' :
+      secBudget.snrDb < 8 ? 'CRITICAL' :
+      secBudget.snrDb < 15 ? 'DEGRADED' : 'CONNECTED';
+    secondaryLink = {
+      id: secondaryKind === 'sat_sat' ? 'link_sat_sat_secondary' : 'link_gs_sat_secondary',
+      nodeAId: secNodeA.id,
+      nodeBId: secNodeB.id,
+      selectedWavelength: secWavelength,
+      compatibleWavelengths: secCompat,
+      status: secStatus,
+      distanceKm: secDistKm,
+      hasLOS: secHasLOS,
+      receivedPowerDbm: secBudget.receivedPowerDbm,
+      snrDb: secBudget.snrDb,
+      berLog10: secBudget.berLog10,
+      linkMarginDb: secBudget.linkMarginDb,
+      freeSpaceLossDb: secBudget.freeSpaceLossDb,
+      atmosphericLossDb: secAtmLoss,
+      pointingLossDb: secBudget.pointingLossDb,
+      elevationDeg: secElevDeg,
+    };
+  }
+
   // ── Adaptive routing: corridor-aware live path evaluation + relay search ──
   // Every hop is re-evaluated every tick against LIVE node positions and
   // debris positions, so a route can break (or heal) as objects move —
@@ -808,11 +884,17 @@ export function tickD2(state: D2State, simTimeS: number, dtS: number, speed: num
     } : undefined,
   };
 
-  const gt: GroundTruth | null = state.activeDisturbances.length > 0
+  // Ground↔Space and Space↔Space are independent — ground truth for each
+  // history only ever reflects disturbances that actually target that mode.
+  const groundStationIdSet = new Set(state.groundStations.map(g => g.id));
+  const primaryModeDisturbances = state.activeDisturbances.filter(d => disturbanceBelongsToD2Mode(d, groundStationIdSet, state.linkType));
+  const secondaryModeDisturbances = state.activeDisturbances.filter(d => disturbanceBelongsToD2Mode(d, groundStationIdSet, secondaryKind));
+
+  const gt: GroundTruth | null = primaryModeDisturbances.length > 0
     ? {
-        disturbanceType: state.activeDisturbances.map(d => d.type).join('+'),
-        disturbanceIntensity: state.activeDisturbances[0].intensity,
-        actualCause: state.activeDisturbances[0].type,
+        disturbanceType: primaryModeDisturbances.map(d => d.type).join('+'),
+        disturbanceIntensity: primaryModeDisturbances[0].intensity,
+        actualCause: primaryModeDisturbances[0].type,
         predictedFutureStatus: (newLink?.snrDb ?? -999) < 10 ? 'critical' : (newLink?.snrDb ?? -999) < 18 ? 'degrading' : 'stable',
         estimatedTimeToCriticalS: newLink?.snrDb
           ? Math.max(0, (newLink.snrDb - 8) * 5)
@@ -822,6 +904,50 @@ export function tickD2(state: D2State, simTimeS: number, dtS: number, speed: num
 
   const sample: TelemetrySample = { observable: obs, groundTruth: gt };
   const newHistory = [...state.telemetryHistory, sample].slice(-1200);
+
+  // Secondary observable telemetry — same shape, driven by the other link's
+  // own free-running PAT/link so its own D3 sub-dashboard can independently
+  // detect/diagnose/predict/mitigate against it.
+  const secObs: ObservableTelemetry = {
+    timestamp: simTimeS,
+    wallTime: Date.now(),
+    beaconX: secondaryPAT.beaconX,
+    beaconY: secondaryPAT.beaconY,
+    cameraCenterX: secondaryPAT.cameraCenterX,
+    cameraCenterY: secondaryPAT.cameraCenterY,
+    pointingErrorUrad: secondaryPAT.pointingErrorUrad,
+    beaconJitterUrad: secBeaconJitter,
+    detectionConfidence: secondaryPAT.detectionConfidence,
+    trackingStatus: secondaryPAT.trackingStatus,
+    receivedPowerDbm: secondaryLink?.receivedPowerDbm ?? -999,
+    snrDb: secondaryLink?.snrDb ?? -999,
+    berLog10: secondaryLink?.berLog10 ?? 0,
+    linkMarginDb: secondaryLink?.linkMarginDb ?? -999,
+    atmosphericLossDb: secondaryLink?.atmosphericLossDb ?? 0,
+    hasLOS: secHasLOS,
+    linkStatusRaw: secondaryLink?.status ?? 'DISCONNECTED',
+    activeRouteNodeIds: secNodeA && secNodeB ? [secNodeA.id, secNodeB.id] : [],
+    primaryRouteAvailable: secondaryLink?.status != null && secondaryLink.status !== 'DISCONNECTED',
+    alternateRouteAvailable: false,
+    orbital: {
+      distanceKm: secDistKm,
+      elevationDeg: secElevDeg,
+      hasLOS: secHasLOS,
+      losWindowRemainingS: secondaryKind === 'sat_sat' ? 999 : predictLOSWindowS(gs, primarySat, speed),
+      relativeVelocityKms: 7.6,
+    },
+  };
+  const secGt: GroundTruth | null = secondaryModeDisturbances.length > 0
+    ? {
+        disturbanceType: secondaryModeDisturbances.map(d => d.type).join('+'),
+        disturbanceIntensity: secondaryModeDisturbances[0].intensity,
+        actualCause: secondaryModeDisturbances[0].type,
+        predictedFutureStatus: (secondaryLink?.snrDb ?? -999) < 10 ? 'critical' : (secondaryLink?.snrDb ?? -999) < 18 ? 'degrading' : 'stable',
+        estimatedTimeToCriticalS: secondaryLink?.snrDb ? Math.max(0, (secondaryLink.snrDb - 8) * 5) : 999,
+      }
+    : null;
+  const secSample: TelemetrySample = { observable: secObs, groundTruth: secGt };
+  const newSecondaryHistory = [...state.secondaryTelemetryHistory, secSample].slice(-1200);
 
   return {
     ...state,
@@ -839,6 +965,11 @@ export function tickD2(state: D2State, simTimeS: number, dtS: number, speed: num
     phase,
     prevBeaconX: newPAT.beaconX,
     prevBeaconY: newPAT.beaconY,
+    secondaryPatState: secondaryPAT,
+    secondaryLink,
+    secondaryPrevBeaconX: secondaryPAT.beaconX,
+    secondaryPrevBeaconY: secondaryPAT.beaconY,
+    secondaryTelemetryHistory: newSecondaryHistory,
   };
 }
 
@@ -886,5 +1017,10 @@ export function createInitialD2State(): D2State {
     phase: 0,
     prevBeaconX: 0,
     prevBeaconY: 0,
+    secondaryPatState: createInitialPATState(),
+    secondaryLink: null,
+    secondaryPrevBeaconX: 0,
+    secondaryPrevBeaconY: 0,
+    secondaryTelemetryHistory: [],
   };
 }

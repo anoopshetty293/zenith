@@ -7,7 +7,7 @@
 
 import React, { useState } from 'react';
 import { AlertTriangle, CheckCircle, Activity, Radio, Eye, Wifi, TrendingDown } from 'lucide-react';
-import { useSimStore, type SimulationStore } from '../../store/simulationStore';
+import { useSimStore, resolveD3History, type SimulationStore } from '../../store/simulationStore';
 import { InfoToggle, InfoNote } from './PanelInfo';
 
 type BadgeVariant = 'ok' | 'warn' | 'crit' | 'info' | 'dim';
@@ -95,7 +95,7 @@ const AnomalyDetector: React.FC = () => {
   const [showInfo, setShowInfo] = useState(false);
 
   // Get latest observable telemetry from correct source
-  const history = d3Source === 'D1' ? d1.telemetryHistory : d2.telemetryHistory;
+  const history = resolveD3History(d3Source, d1, d2);
   const latestObs = history.length > 0 ? history[history.length - 1].observable : undefined;
 
   // ─── NOMINAL STATE ──────────────────────────────────────────────────────────

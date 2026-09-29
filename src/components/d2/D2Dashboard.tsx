@@ -12,6 +12,7 @@ import FutureTimeline from './FutureTimeline';
 import SpaceTelemetry from './SpaceTelemetry';
 import SpaceTelemetryCharts from './SpaceTelemetryCharts';
 import ManualRoutePlanner from './ManualRoutePlanner';
+import { disturbanceBelongsToD2Mode } from '../../simulation/disturbances';
 import clsx from 'clsx';
 
 export default function D2Dashboard() {
@@ -27,12 +28,18 @@ export default function D2Dashboard() {
   }, [location.state, location.search, setD2LinkType]);
 
   const isGroundSpace = d2.linkType === 'ground_sat';
-  const hasDisturbance = d2.activeDisturbances.length > 0;
+  // Ground↔Space and Space↔Space are independent, simultaneously-live links
+  // — the toolbar only ever reflects a disturbance that actually targets
+  // whichever one is currently selected.
+  const groundIds = new Set(d2.groundStations.map(g => g.id));
+  const modeDisturbances = d2.activeDisturbances.filter(d => disturbanceBelongsToD2Mode(d, groundIds, d2.linkType));
+  const hasDisturbance = modeDisturbances.length > 0;
   const latestObs = d2.telemetryHistory[d2.telemetryHistory.length - 1]?.observable;
   const pat = d2.patState;
 
   return (
     <div className="h-full overflow-auto fsoc-app-bg">
+    <div className="min-w-[1400px]">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--zen-line)] bg-[rgba(5,7,12,.42)] px-5 py-4 backdrop-blur-xl">
         <div className="flex flex-wrap items-center gap-3">
           <Satellite size={15} className="text-fsoc-cyan" />
@@ -40,7 +47,7 @@ export default function D2Dashboard() {
             <div className="fsoc-title text-sm font-semibold text-[var(--zen-ink)] uppercase tracking-[0.08em]">Dashboard 2 — Orbital FSOC</div>
             <div className="text-[9px] font-mono text-[var(--zen-mute)]">Optical links · Orbital dynamics · Point, Acquire & Track</div>
           </div>
-          {hasDisturbance && <div className="flex items-center gap-1 rounded border border-fsoc-amber/40 bg-amber-900/30 px-2 py-1"><AlertTriangle size={10} className="text-fsoc-amber" /><span className="text-[10px] font-mono text-fsoc-amber">{d2.activeDisturbances.map(d => d.type).join(' + ')}</span></div>}
+          {hasDisturbance && <div className="flex items-center gap-1 rounded border border-fsoc-amber/40 bg-amber-900/30 px-2 py-1"><AlertTriangle size={10} className="text-fsoc-amber" /><span className="text-[10px] font-mono text-fsoc-amber">{modeDisturbances.map(d => d.type).join(' + ')}</span></div>}
           {latestObs?.orbital && !latestObs.orbital.hasLOS && <span className="rounded border border-fsoc-red/40 bg-red-900/30 px-2 py-1 text-[10px] font-mono text-fsoc-red">LINE OF SIGHT LOST</span>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -56,13 +63,13 @@ export default function D2Dashboard() {
       </div>
 
 
-      <div className="p-3 grid grid-cols-1 gap-3 xl:grid-cols-12">
-        <div className="min-w-0 space-y-3 xl:col-span-3">
+      <div className="p-3 grid grid-cols-12 gap-3">
+        <div className="min-w-0 space-y-3 col-span-3">
           <SpaceNodeConfig />
           <OrbitalGeometry />
           <SpaceTelemetry />
         </div>
-        <div className="min-w-0 space-y-3 xl:col-span-6">
+        <div className="min-w-0 space-y-3 col-span-6">
           <section className="panel">
             <div className="panel-header"><span className="panel-title">Orbital Environment</span><span className="text-[9px] font-mono text-[var(--zen-mute)]">{d2.satellites.length} satellites · {d2.debris.length} debris</span></div>
             <div className="border-b border-fsoc-border/60 px-3 py-2 text-[10px] leading-relaxed text-[var(--zen-mute)]">{isGroundSpace ? 'Ground-to-satellite geometry: monitor the station-to-orbit link, elevation angle and visibility window.' : 'Inter-satellite geometry: monitor relative orbital positions, inter-satellite line of sight and link visibility.'}</div>
@@ -80,21 +87,21 @@ export default function D2Dashboard() {
                   <div className="grid grid-cols-4 gap-1.5">{[['1','ACQUIRE',pat.detectionConfidence > 0.2],['2','MEASURE',pat.pointingErrorUrad < 180],['3','CORRECT',pat.pointingErrorUrad > 25 || pat.gimbalRateDegS > 1],['4','TRACK',pat.trackingStatus === 'LOCKED']].map(([n,label,active]) => <div key={String(label)} className={clsx('rounded-md border px-1 py-2 text-center', active ? 'border-fsoc-cyan/40 bg-fsoc-cyan/5' : 'border-fsoc-border/60 bg-black/10')}><div className="text-[10px] font-mono text-fsoc-cyan">{n}</div><div className="mt-1 text-[8px] font-mono text-[var(--zen-ink)]">{label}</div></div>)}</div>
                   <p className="mt-3 text-[10px] leading-relaxed text-[var(--zen-mute)]">PAT finds the remote optical beacon, estimates its offset from the camera center, moves the pointing mechanism to reduce error, and maintains lock as the link geometry changes.</p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{[
+                <div className="grid grid-cols-3 gap-2">{[
                   ['POINTING ERROR', `${pat.pointingErrorUrad.toFixed(1)} μrad`, 'Lower is better'],
                   ['BEACON CONFIDENCE', `${(pat.detectionConfidence * 100).toFixed(1)}%`, 'Detection certainty'],
                   ['GIMBAL RATE', `${pat.gimbalRateDegS.toFixed(2)}°/s`, 'Pointing correction'],
                   ['BEACON X', pat.beaconX.toFixed(3), 'Normalized position'],
                   ['BEACON Y', pat.beaconY.toFixed(3), 'Normalized position'],
                   ['LINK VISIBILITY', latestObs?.orbital ? `${latestObs.orbital.losWindowRemainingS.toFixed(0)} s` : '—', 'LOS window remaining'],
-                ].map(([label,value,hint]) => <div key={label} className="min-w-0 rounded-lg border border-fsoc-border bg-black/10 p-2.5"><div className="text-[8px] font-mono tracking-wider text-[var(--zen-mute)]">{label}</div><div className="mt-1 break-words font-mono text-sm tabular-nums text-fsoc-cyan">{value}</div><div className="mt-0.5 text-[8px] text-[var(--zen-mute)]">{hint}</div></div>)}</div>
+                ].map(([label,value,hint]) => <div key={label} className="min-w-0 rounded-lg border border-fsoc-border bg-black/10 p-2.5"><div className="whitespace-nowrap text-[8px] font-mono tracking-wider text-[var(--zen-mute)]">{label}</div><div className="mt-1 whitespace-nowrap font-mono text-sm tabular-nums text-fsoc-cyan">{value}</div><div className="mt-0.5 whitespace-nowrap text-[8px] text-[var(--zen-mute)]">{hint}</div></div>)}</div>
                 <div className="rounded-lg border border-fsoc-border/70 bg-black/10 p-3"><div className="text-[8px] font-mono uppercase tracking-wider text-[var(--zen-mute)]">Current PAT state</div><div className="mt-1 text-[11px] leading-relaxed text-[var(--zen-ink)]">{pat.trackingStatus === 'LOCKED' ? 'Beacon is aligned with the optical axis. PAT is maintaining lock.' : pat.trackingStatus === 'LOST' ? 'Beacon is outside reliable detection. PAT is searching for reacquisition.' : pat.trackingStatus === 'DEGRADED' ? 'Tracking quality is degraded. Pointing corrections may be needed to recover stable lock.' : 'Beacon acquisition is in progress; PAT is estimating and correcting the pointing offset.'}</div></div>
                 <details className="rounded-lg border border-fsoc-border/60 bg-black/10"><summary className="cursor-pointer px-3 py-2 text-[9px] font-mono uppercase tracking-wider text-[var(--zen-mute)]">Engineering telemetry</summary><div className="grid grid-cols-2 gap-x-5 gap-y-2 px-3 pb-3 pt-1">{[['Camera center X',pat.cameraCenterX.toFixed(3)],['Camera center Y',pat.cameraCenterY.toFixed(3)],['Beacon motion',`${pat.beaconVelocityUradS.toFixed(1)} μrad/s`],['Gimbal angle',`${pat.cameraAngleDeg.toFixed(1)}°`],['Elevation',d2.primaryLink?.elevationDeg != null ? `${d2.primaryLink.elevationDeg.toFixed(1)}°` : '—'],['LOS status',latestObs?.orbital?.hasLOS ? 'AVAILABLE' : 'CHECK LINK']].map(([label,value]) => <div key={label}><div className="text-[8px] font-mono text-[var(--zen-mute)]">{label}</div><div className="text-[10px] font-mono text-fsoc-cyan">{value}</div></div>)}</div></details>
               </div>
             </div>
           </section>
         </div>
-        <div className="min-w-0 space-y-3 xl:col-span-3">
+        <div className="min-w-0 space-y-3 col-span-3">
           <section className="panel">
             <div className="panel-header"><span className="panel-title">Adaptive Routing</span><span className="text-[9px] font-mono text-[var(--zen-mute)]">{d2.alternateRoutes.length} relay paths</span></div>
             <div className="space-y-2 p-3">
@@ -127,6 +134,7 @@ export default function D2Dashboard() {
       <div className="px-3 pb-3">
         <SpaceTelemetryCharts />
       </div>
+    </div>
     </div>
   );
 }

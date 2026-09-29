@@ -7,9 +7,10 @@
 
 import React, { useState } from 'react';
 import { Activity, Radio, Eye, Wifi, Gauge, Signal, Navigation } from 'lucide-react';
-import { useSimStore } from '../../store/simulationStore';
+import { useSimStore, resolveD3History, d3SourceLabel } from '../../store/simulationStore';
 import { ObservableTelemetry } from '@/types/telemetry';
 import { InfoToggle, InfoNote } from './PanelInfo';
+import Term from '../shared/Term';
 
 const OBSERVATION_INFO = (
   <>
@@ -106,7 +107,7 @@ const ObservationPanel: React.FC = () => {
   const { d3Source, d1, d2, simTimeS, isRunning } = useSimStore();
   const [showInfo, setShowInfo] = useState(false);
 
-  const history = d3Source === 'D1' ? d1.telemetryHistory : d2.telemetryHistory;
+  const history = resolveD3History(d3Source, d1, d2);
   const latestSample = history.length > 0 ? history[history.length - 1] : null;
   const obs = latestSample?.observable;
 
@@ -135,7 +136,7 @@ const ObservationPanel: React.FC = () => {
       <div className="px-3 py-1.5 border-b border-fsoc-border bg-fsoc-bg/40 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] font-mono text-fsoc-dim uppercase tracking-widest">Source:</span>
-          <span className="text-[9px] font-mono text-fsoc-cyan font-bold">{d3Source === 'D1' ? 'Ground FSOC' : 'Space FSOC'}</span>
+          <span className="text-[9px] font-mono text-fsoc-cyan font-bold">{d3SourceLabel(d3Source)}</span>
         </div>
         <span className="text-[9px] font-mono text-fsoc-dim tabular-nums">
           T+{simTimeS.toFixed(1)}s
@@ -207,7 +208,7 @@ const ObservationPanel: React.FC = () => {
                   <StatusDot ok={obs.trackingStatus === 'LOCKED'} />
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1.5">
-                  <span className="text-[9px] font-mono text-fsoc-dim flex-1">LOS</span>
+                  <span className="text-[9px] font-mono text-fsoc-dim flex-1"><Term>LOS</Term></span>
                   <span className={`text-[9px] font-mono font-bold ${obs.hasLOS ? 'text-emerald-300' : 'text-red-300'}`}>
                     {obs.hasLOS ? 'CLEAR' : 'BLOCKED'}
                   </span>

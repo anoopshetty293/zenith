@@ -1,9 +1,10 @@
 import { useSimStore } from '../store/simulationStore';
 import { useNavigate } from 'react-router-dom';
-import { Radio, Satellite, Brain, Zap, Activity, Signal, Target, TrendingDown, AlertTriangle } from 'lucide-react';
+import { Radio, Satellite, Brain, Zap } from 'lucide-react';
 import StatusBadge from '../components/shared/StatusBadge';
 import TelemetryValue from '../components/shared/TelemetryValue';
 import clsx from 'clsx';
+import { Fragment } from 'react';
 
 function formatBER(log10: number): string {
   if (log10 <= -15) return '< 10⁻¹⁵';
@@ -12,74 +13,140 @@ function formatBER(log10: number): string {
   return `${mantissa.toFixed(1)}×10${exp < 0 ? `⁻${Math.abs(exp)}` : exp}`;
 }
 
+type ChainNodeInfo = { name: string; icon: typeof Radio };
+
+function ChainNode({ info, active }: { info: ChainNodeInfo; active: boolean }) {
+  const Icon = info.icon;
+  return (
+    <div className="flex flex-col items-center gap-1 shrink-0">
+      <div className={clsx('w-8 h-8 rounded-full border-2 flex items-center justify-center',
+        active ? 'border-fsoc-cyan bg-fsoc-cyan/10' : 'border-fsoc-dim bg-fsoc-border'
+      )}>
+        <Icon size={14} className={active ? 'text-fsoc-cyan' : 'text-fsoc-dim'} />
+      </div>
+      <span className="max-w-[90px] truncate text-[9px] font-mono text-fsoc-dim" title={info.name}>{info.name}</span>
+    </div>
+  );
+}
+
+function ChainLink({ ok, broken, label }: { ok: boolean; broken?: boolean; label?: string }) {
+  return (
+    <div className="flex min-w-[56px] flex-col items-center px-2">
+      <div className={clsx('h-0.5 w-full', broken ? 'bg-fsoc-red' : ok ? 'bg-fsoc-cyan' : 'bg-fsoc-border')} />
+      <span className="mt-0.5 whitespace-nowrap text-[8px] font-mono text-fsoc-dim">{label ?? ' '}</span>
+    </div>
+  );
+}
+
+function ChainRow({
+  title, ids, getNode, connected, hopBlocked, hopDistance, badgeVariant, badgeLabel,
+}: {
+  title: string;
+  ids: string[];
+  getNode: (id: string) => ChainNodeInfo;
+  connected: boolean;
+  hopBlocked: (i: number) => boolean;
+  hopDistance: (i: number) => string | undefined;
+  badgeVariant: Parameters<typeof StatusBadge>[0]['variant'];
+  badgeLabel: string;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[9px] font-mono uppercase tracking-wider text-fsoc-dim">{title}</span>
+        <StatusBadge variant={badgeVariant} label={badgeLabel} />
+      </div>
+      <div className="flex items-center gap-0 overflow-x-auto py-1">
+        {ids.map((id, i) => (
+          <Fragment key={`${id}-${i}`}>
+            {i > 0 && <ChainLink ok={connected} broken={hopBlocked(i - 1)} label={hopDistance(i - 1)} />}
+            <ChainNode info={getNode(id)} active={connected && !hopBlocked(i - 1)} />
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SystemDiagram({ d1, d2 }: { d1: any; d2: any }) {
-  const d1Status = d1.primaryLink?.status ?? 'DISCONNECTED';
-  const d2HasLOS = d2.primaryLink?.hasLOS ?? false;
+  const d1Status: string = d1.primaryLink?.status ?? 'DISCONNECTED';
+  const d1Connected = d1Status === 'CONNECTED' || d1Status === 'DEGRADED';
+  const d1ChainIds: string[] = d1.activeRoute?.nodeIds ?? [d1.sourceNodeId, d1.destNodeId];
+  const d1Hops = d1.activeRoute?.hops as { blocked?: boolean }[] | undefined;
+  const d1HopLinks = d1.activeRoute?.hopLinks as { distanceKm: number }[] | undefined;
+
+  const isGroundSpaceActive = d2.linkType === 'ground_sat';
+  const d2ActiveChainIds: string[] = d2.activeRoute?.nodeIds
+    ?? (d2.primaryLink ? [d2.primaryLink.nodeAId, d2.primaryLink.nodeBId]
+      : isGroundSpaceActive ? [d2.groundStations[0]?.id, d2.satellites[0]?.id].filter(Boolean)
+      : [d2.satellites[0]?.id, d2.satellites[1]?.id].filter(Boolean));
+  const d2Hops = d2.activeRoute?.hops as { blocked?: boolean }[] | undefined;
+  const d2HopLinks = d2.activeRoute?.hopLinks as { distanceKm: number }[] | undefined;
+
+  const groundSpaceIds: string[] = isGroundSpaceActive ? d2ActiveChainIds : [d2.groundStations[0]?.id, d2.satellites[0]?.id].filter(Boolean);
+  const spaceSpaceIds: string[] = !isGroundSpaceActive ? d2ActiveChainIds : [d2.satellites[0]?.id, d2.satellites[1]?.id].filter(Boolean);
+
+  // Ground↔Space and Space↔Space both run live simultaneously — `linkType`
+  // only picks which one Dashboard 2's routing/PAT UI is currently driving.
+  // The other pair's connectivity comes from its own free-running secondary link.
+  const groundSpaceLink = isGroundSpaceActive ? d2.primaryLink : d2.secondaryLink;
+  const spaceSpaceLink = !isGroundSpaceActive ? d2.primaryLink : d2.secondaryLink;
+  const badgeForLink = (link: { status: string; hasLOS: boolean } | null): { variant: Parameters<typeof StatusBadge>[0]['variant']; label: string } =>
+    !link || !link.hasLOS
+      ? { variant: 'disconnected', label: 'NO LOS' }
+      : { variant: link.status === 'CONNECTED' ? 'connected' : link.status === 'DEGRADED' ? 'degraded' : 'disconnected', label: link.status };
+
+  const d1Node = (id: string): ChainNodeInfo => ({
+    name: d1.nodes.find((n: any) => n.id === id)?.name ?? id,
+    icon: Radio,
+  });
+  const d2Node = (id: string): ChainNodeInfo => {
+    const ground = d2.groundStations.find((n: any) => n.id === id);
+    if (ground) return { name: ground.name, icon: Radio };
+    const sat = d2.satellites.find((n: any) => n.id === id);
+    return { name: sat?.name ?? id, icon: Satellite };
+  };
 
   return (
-    <div className="panel p-3">
-      <div className="panel-header mb-3">
+    <div className="panel space-y-4 p-3">
+      <div className="panel-header">
         <span className="panel-title">Live System Diagram</span>
       </div>
-      <div className="flex items-center justify-center gap-0 py-2">
-        {/* Ground A */}
-        <div className="flex flex-col items-center gap-1">
-          <div className={clsx('w-8 h-8 rounded-full border-2 flex items-center justify-center',
-            d1Status === 'CONNECTED' ? 'border-fsoc-cyan bg-fsoc-cyan/10' : 'border-fsoc-dim bg-fsoc-border'
-          )}>
-            <Radio size={14} className={d1Status === 'CONNECTED' ? 'text-fsoc-cyan' : 'text-fsoc-dim'} />
-          </div>
-          <span className="text-[9px] font-mono text-fsoc-dim">GROUND A</span>
-        </div>
 
-        {/* D1 Link */}
-        <div className="flex flex-col items-center px-2 w-24">
-          <div className={clsx('h-0.5 w-full', d1Status === 'CONNECTED' ? 'bg-fsoc-cyan' : d1Status === 'DEGRADED' ? 'bg-fsoc-amber' : 'bg-fsoc-border')} />
-          <span className="text-[8px] font-mono text-fsoc-dim mt-0.5">
-            {d1.primaryLink?.distanceKm?.toFixed(1) ?? '—'} km
-          </span>
-          <span className="text-[8px] font-mono" style={{ color: d1Status === 'CONNECTED' ? '#00d4ff' : '#ff3333' }}>
-            {d1.primaryLink?.selectedWavelength ?? '—'} nm
-          </span>
-        </div>
+      <ChainRow
+        title="Ground Segment (Dashboard 1)"
+        ids={d1ChainIds}
+        getNode={d1Node}
+        connected={d1Connected}
+        hopBlocked={(i) => d1Hops?.[i]?.blocked ?? false}
+        hopDistance={(i) => `${(d1ChainIds.length === 2 ? d1.primaryLink?.distanceKm?.toFixed(1) : d1HopLinks?.[i]?.distanceKm?.toFixed(1)) ?? '—'} km`}
+        badgeVariant={d1Status === 'CONNECTED' ? 'connected' : d1Status === 'DEGRADED' ? 'degraded' : 'disconnected'}
+        badgeLabel={d1Status}
+      />
 
-        {/* Ground B */}
-        <div className="flex flex-col items-center gap-1">
-          <div className={clsx('w-8 h-8 rounded-full border-2 flex items-center justify-center',
-            d1Status === 'CONNECTED' ? 'border-fsoc-cyan bg-fsoc-cyan/10' : 'border-fsoc-dim bg-fsoc-border'
-          )}>
-            <Radio size={14} className={d1Status === 'CONNECTED' ? 'text-fsoc-cyan' : 'text-fsoc-dim'} />
-          </div>
-          <span className="text-[9px] font-mono text-fsoc-dim">GROUND B</span>
-        </div>
+      <div className="border-t border-fsoc-border" />
 
-        {/* Divider */}
-        <div className="mx-4 h-12 w-px bg-fsoc-border" />
+      <ChainRow
+        title="Space Segment (Dashboard 2) · Ground ↔ Space"
+        ids={groundSpaceIds}
+        getNode={d2Node}
+        connected={groundSpaceLink?.hasLOS ?? false}
+        hopBlocked={(i) => (isGroundSpaceActive ? d2Hops?.[i]?.blocked ?? false : false)}
+        hopDistance={(i) => `${(isGroundSpaceActive && groundSpaceIds.length !== 2 ? d2HopLinks?.[i]?.distanceKm?.toFixed(0) : groundSpaceLink?.distanceKm?.toFixed(0)) ?? '—'} km`}
+        badgeVariant={badgeForLink(groundSpaceLink).variant}
+        badgeLabel={badgeForLink(groundSpaceLink).label}
+      />
 
-        {/* Space side */}
-        <div className="flex flex-col items-center gap-1">
-          <div className="w-8 h-8 rounded-full border-2 border-fsoc-dim bg-fsoc-border flex items-center justify-center">
-            <Radio size={14} className="text-fsoc-dim" />
-          </div>
-          <span className="text-[9px] font-mono text-fsoc-dim">GS ALPHA</span>
-        </div>
-
-        <div className="flex flex-col items-center px-2 w-16">
-          <div className={clsx('h-0.5 w-full', d2HasLOS ? 'bg-fsoc-cyan' : 'bg-fsoc-border')} />
-          <span className="text-[8px] font-mono text-fsoc-dim mt-0.5">
-            {d2.primaryLink?.distanceKm?.toFixed(0) ?? '—'} km
-          </span>
-        </div>
-
-        <div className="flex flex-col items-center gap-1">
-          <div className={clsx('w-8 h-8 rounded-full border-2 flex items-center justify-center',
-            d2HasLOS ? 'border-fsoc-cyan bg-fsoc-cyan/10' : 'border-fsoc-dim bg-fsoc-border'
-          )}>
-            <Satellite size={14} className={d2HasLOS ? 'text-fsoc-cyan' : 'text-fsoc-dim'} />
-          </div>
-          <span className="text-[9px] font-mono text-fsoc-dim">SAT-A</span>
-        </div>
-      </div>
+      <ChainRow
+        title="Space Segment (Dashboard 2) · Space ↔ Space"
+        ids={spaceSpaceIds}
+        getNode={d2Node}
+        connected={spaceSpaceLink?.hasLOS ?? false}
+        hopBlocked={(i) => (!isGroundSpaceActive ? d2Hops?.[i]?.blocked ?? false : false)}
+        hopDistance={(i) => `${(!isGroundSpaceActive && spaceSpaceIds.length !== 2 ? d2HopLinks?.[i]?.distanceKm?.toFixed(0) : spaceSpaceLink?.distanceKm?.toFixed(0)) ?? '—'} km`}
+        badgeVariant={badgeForLink(spaceSpaceLink).variant}
+        badgeLabel={badgeForLink(spaceSpaceLink).label}
+      />
     </div>
   );
 }
@@ -233,30 +300,6 @@ export default function Overview() {
 
       {/* System diagram */}
       <SystemDiagram d1={d1} d2={d2} />
-
-      {/* Recent events */}
-      <div className="panel p-3">
-        <div className="panel-header mb-2">
-          <span className="panel-title">Recent Events</span>
-        </div>
-        <div className="space-y-1 max-h-32 overflow-auto">
-          {d1.activeDisturbances.length > 0 && (
-            <div className="flex items-center gap-2 text-[10px] font-mono">
-              <AlertTriangle size={10} className="text-fsoc-amber" />
-              <span className="text-fsoc-amber">D1 Active disturbance: {d1.activeDisturbances.map(d => d.type).join(', ')}</span>
-            </div>
-          )}
-          {d3Anomaly && (
-            <div className="flex items-center gap-2 text-[10px] font-mono">
-              <AlertTriangle size={10} className="text-fsoc-red" />
-              <span className="text-fsoc-red">Anomaly detected at T+{d3Anomaly.detectedAtS.toFixed(0)}s — {d3Anomaly.severity}</span>
-            </div>
-          )}
-          {!d3Anomaly && !d1.activeDisturbances.length && (
-            <div className="text-[10px] font-mono text-fsoc-dim">No recent events. System operating normally.</div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

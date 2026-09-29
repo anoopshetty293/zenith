@@ -8,10 +8,9 @@ import Overview from "./pages/Overview";
 import D1Dashboard from "./components/d1/D1Dashboard";
 import D2Dashboard from "./components/d2/D2Dashboard";
 import D3Dashboard from "./components/d3/D3Dashboard";
-import SimulationRuns from "./pages/SimulationRuns";
 import TestCases from "./pages/TestCases";
 import SystemArchitecture from "./pages/SystemArchitecture";
-import Settings from "./pages/Settings";
+import About from "./pages/About";
 
 export default function App() {
   return (
@@ -28,10 +27,9 @@ export default function App() {
           <Route path="/d1" element={<D1Dashboard />} />
           <Route path="/d2" element={<D2Dashboard />} />
           <Route path="/d3" element={<D3Dashboard />} />
-          <Route path="/runs" element={<SimulationRuns />} />
           <Route path="/testcases" element={<TestCases />} />
           <Route path="/architecture" element={<SystemArchitecture />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/about" element={<About />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

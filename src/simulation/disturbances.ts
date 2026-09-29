@@ -301,3 +301,19 @@ export function createActiveDisturbance(
     targetHops,
   };
 }
+
+/**
+ * Dashboard 2's Ground↔Space and Space↔Space links are independent, live
+ * simulations — a disturbance injected on one must never appear "active" (or
+ * be clearable) from the other's controls. A disturbance belongs to
+ * ground↔space if any of its target hops touches a ground-station id;
+ * otherwise it's a pure satellite↔satellite hop and belongs to space↔space.
+ */
+export function disturbanceBelongsToD2Mode(
+  dist: ActiveDisturbance,
+  groundStationIds: ReadonlySet<string>,
+  linkType: 'ground_sat' | 'sat_sat'
+): boolean {
+  const touchesGround = dist.targetHops.some(([a, b]) => groundStationIds.has(a) || groundStationIds.has(b));
+  return linkType === 'ground_sat' ? touchesGround : !touchesGround;
+}

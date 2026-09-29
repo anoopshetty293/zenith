@@ -30,7 +30,7 @@ export default function D3Dashboard() {
           </div>
         </div>
 
-        {/* Source selector */}
+        {/* Source selector — D1, plus D2's two independent sub-links */}
         <div className="flex items-center gap-2">
           <span className="text-[9px] font-mono text-[var(--zen-mute)] uppercase tracking-wider">Source:</span>
           <button
@@ -45,15 +45,26 @@ export default function D3Dashboard() {
             <Radio size={10} /> D1 — Ground FSOC
           </button>
           <button
-            onClick={() => setD3Source('D2')}
+            onClick={() => setD3Source('D2_GROUND_SPACE')}
             className={clsx(
               'flex items-center gap-1 px-3 py-1 text-[10px] font-mono rounded border transition-colors',
-              d3Source === 'D2'
+              d3Source === 'D2_GROUND_SPACE'
                 ? 'bg-purple-900/30 border-purple-600 text-purple-300'
                 : 'border-fsoc-border text-fsoc-dim hover:border-purple-600/50'
             )}
           >
-            <Satellite size={10} /> D2 — Space FSOC
+            <Satellite size={10} /> D2 — Ground ↔ Space
+          </button>
+          <button
+            onClick={() => setD3Source('D2_SPACE_SPACE')}
+            className={clsx(
+              'flex items-center gap-1 px-3 py-1 text-[10px] font-mono rounded border transition-colors',
+              d3Source === 'D2_SPACE_SPACE'
+                ? 'bg-purple-900/30 border-purple-600 text-purple-300'
+                : 'border-fsoc-border text-fsoc-dim hover:border-purple-600/50'
+            )}
+          >
+            <Satellite size={10} /> D2 — Space ↔ Space
           </button>
         </div>
       </div>

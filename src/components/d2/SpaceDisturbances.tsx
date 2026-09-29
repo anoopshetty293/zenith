@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useSimStore } from '../../store/simulationStore';
 import { DISTURBANCE_CATALOG, type DisturbanceType, type DisturbanceCategory, type DisturbanceDefinition } from '../../types/disturbances';
+import { disturbanceBelongsToD2Mode } from '../../simulation/disturbances';
 import { Zap, Radio, Eye, AlertCircle, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -47,10 +48,16 @@ function CategoryGroup({ category, defs, activeTypes, onInject }: { category: Di
 }
 
 export default function SpaceDisturbances() {
-  const activeDisturbances = useSimStore(s => s.d2.activeDisturbances);
+  const allActiveDisturbances = useSimStore(s => s.d2.activeDisturbances);
+  const groundStations = useSimStore(s => s.d2.groundStations);
+  const linkType = useSimStore(s => s.d2.linkType);
   const injectD2Disturbance = useSimStore(s => s.injectD2Disturbance);
   const clearD2Disturbances = useSimStore(s => s.clearD2Disturbances);
-  const isGroundSat = useSimStore(s => s.d2.linkType === 'ground_sat');
+  const isGroundSat = linkType === 'ground_sat';
+  // Ground↔Space and Space↔Space run independently — only show/count
+  // disturbances that actually target whichever link is currently selected.
+  const groundIds = new Set(groundStations.map(g => g.id));
+  const activeDisturbances = allActiveDisturbances.filter(d => disturbanceBelongsToD2Mode(d, groundIds, linkType));
   const activeTypes = new Set<DisturbanceType>(activeDisturbances.map(d => d.type));
   const categories: DisturbanceCategory[] = ['atmospheric', 'mechanical', 'optical', 'space', 'debris'];
   const defs = DISTURBANCE_CATALOG.filter(d => d.appliesToD2 && (isGroundSat || d.category !== 'atmospheric'));

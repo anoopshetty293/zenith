@@ -13,6 +13,7 @@ import {
 import { Activity } from 'lucide-react';
 import { useSimStore } from '../../store/simulationStore';
 import { ObservableTelemetry } from '../../types/telemetry';
+import Term from '../shared/Term';
 
 // ─── Chart config ─────────────────────────────────────────────────────────────
 
@@ -102,7 +103,15 @@ const SingleChart: React.FC<SingleChartProps> = ({ config, data, disturbanceTime
   return (
     <div className="bg-fsoc-panel border border-fsoc-border/60 rounded-lg p-2 space-y-1">
       <div className="flex items-center justify-between px-1">
-        <span className="text-[10px] font-semibold text-fsoc-cyan uppercase tracking-wider">{title}</span>
+        <span className="text-[10px] font-semibold text-fsoc-cyan uppercase tracking-wider">
+          {title === 'BER (log₁₀)' ? (
+            <>
+              <Term glossaryKey="BER">BER</Term> (log₁₀)
+            </>
+          ) : (
+            <Term>{title}</Term>
+          )}
+        </span>
         <span className="text-[9px] text-fsoc-dim font-mono">{unit}</span>
       </div>
       <ResponsiveContainer width="100%" height={110}>

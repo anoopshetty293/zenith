@@ -161,18 +161,3 @@ export interface TestCaseResult {
   notes: string;
 }
 
-// ─── Simulation Run ───────────────────────────────────────────────────────────
-export interface SimulationRun {
-  id: string;
-  startTime: number;  // Date.now()
-  endTime: number | null;
-  dashboard: TestCaseDashboard;
-  linkType: TestCaseLinkType;
-  testCaseId: string | null;
-  disturbanceType: DisturbanceType | null;
-  durationS: number;
-  diagnosis: Diagnosis | null;
-  verification: GroundTruthVerification | null;
-  mitigation: Mitigation | null;
-  result: TestCaseResult | null;
-}

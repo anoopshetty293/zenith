@@ -11,7 +11,7 @@ import { D1State, D2State, tickD1, tickD2, createInitialD1State, createInitialD2
 import { RouteChange, RouteChangeReason, Route, PATState } from '../types/links';
 import { routeLabel, evaluateGroundPath, findGroundRoutes, evaluateD2Path, enumerateD2Paths, type D2Node, GroundRouteContext, hopKey } from '../simulation/routing';
 import { detectAnomaly, diagnose, predict, recommendMitigation } from '../simulation/intelligence';
-import { computeDisturbanceEffect, createActiveDisturbance } from '../simulation/disturbances';
+import { computeDisturbanceEffect, createActiveDisturbance, disturbanceBelongsToD2Mode } from '../simulation/disturbances';
 import {
   AnomalyEvent,
   Diagnosis,
@@ -19,7 +19,6 @@ import {
   Mitigation,
   TimelineEvent,
   TimelineEventType,
-  SimulationRun,
   TestCase,
   GroundTruthVerification,
   ConfidenceHistoryPoint,
@@ -66,7 +65,39 @@ function computeD2Alternates(d2: D2State): Route[] {
     .slice(0, 3);
 }
 
-type D3Source = 'D1' | 'D2';
+/**
+ * D2's Ground↔Space and Space↔Space links are independent, simultaneously-live
+ * simulations (see D2State.secondaryLink/secondaryPatState/secondaryTelemetryHistory
+ * in engine.ts) — D3 can independently observe/diagnose/predict/mitigate either
+ * one, as its own sub-dashboard, regardless of which one Dashboard 2 itself is
+ * currently driving (`d2.linkType`).
+ */
+export type D3Source = 'D1' | 'D2_GROUND_SPACE' | 'D2_SPACE_SPACE';
+
+/** Whether the given D3 D2-sub-source is the one D2 is CURRENTLY actively driving (`d2.linkType`), vs. its free-running secondary link. */
+export function isD2SourcePrimary(source: D3Source, d2: D2State): boolean {
+  if (source === 'D1') return false;
+  const wantGroundSpace = source === 'D2_GROUND_SPACE';
+  return (d2.linkType === 'ground_sat') === wantGroundSpace;
+}
+
+/** Resolve the telemetry history a given D3 source should analyze. */
+export function resolveD3History(source: D3Source, d1: D1State, d2: D2State) {
+  if (source === 'D1') return d1.telemetryHistory;
+  return isD2SourcePrimary(source, d2) ? d2.telemetryHistory : d2.secondaryTelemetryHistory;
+}
+
+/** Resolve the alternate routes available for mitigation's SWITCH_ROUTE suggestion — only the D2 link Dashboard 2 is actively routing has any (the secondary link never runs relay search). */
+export function resolveD3AltRoutes(source: D3Source, d1: D1State, d2: D2State): Route[] {
+  if (source === 'D1') return d1.alternateRoutes;
+  return isD2SourcePrimary(source, d2) ? d2.alternateRoutes : [];
+}
+
+/** Short display label for a D3 source, for panel headers. */
+export function d3SourceLabel(source: D3Source): string {
+  if (source === 'D1') return 'Ground FSOC';
+  return source === 'D2_GROUND_SPACE' ? 'Space FSOC — Ground ↔ Space' : 'Space FSOC — Space ↔ Space';
+}
 
 export interface SimulationStore {
   // ── Simulation Control ────────────────────────────────────────────────────
@@ -99,10 +130,6 @@ export interface SimulationStore {
   d3Timeline: TimelineEvent[];
   d3ConfidenceHistory: ConfidenceHistoryPoint[];
   d3LastAnalysisTimeS: number;
-
-  // ── Simulation Runs (persisted) ───────────────────────────────────────────
-  simulationRuns: SimulationRun[];
-  activeRunId: string | null;
 
   // ── Test Cases ─────────────────────────────────────────────────────────────
   testCases: TestCase[];
@@ -156,11 +183,6 @@ export interface SimulationStore {
   // Test cases
   loadTestCase: (id: string) => void;
   resetTestCase: () => void;
-
-  // Simulation runs
-  startRun: () => void;
-  endRun: () => void;
-  openRunInD3: (runId: string) => void;
 }
 
 let tickInterval: ReturnType<typeof setInterval> | null = null;
@@ -248,9 +270,6 @@ export const useSimStore = create<SimulationStore>()(
       d3ConfidenceHistory: [],
       d3LastAnalysisTimeS: 0,
 
-      simulationRuns: [],
-      activeRunId: null,
-
       testCases: PRESET_TEST_CASES,
       activeTestCaseId: null,
 
@@ -268,9 +287,7 @@ export const useSimStore = create<SimulationStore>()(
           const newD2 = s.d2Paused ? s.d2 : tickD2(s.d2, newSimTime, DT_S, s.speed, { autoReroute: s.d2AutoReroute });
 
           // D3 intelligence — runs on telemetry from selected source, no ground truth
-          const sourceHistory = s.d3Source === 'D1'
-            ? newD1.telemetryHistory.map(t => t.observable)
-            : newD2.telemetryHistory.map(t => t.observable);
+          const sourceHistory = resolveD3History(s.d3Source, newD1, newD2).map(t => t.observable);
 
           let updates: Partial<SimulationStore> = {
             simTimeS: newSimTime,
@@ -299,7 +316,7 @@ export const useSimStore = create<SimulationStore>()(
             const anomaly = detectAnomaly(sourceHistory);
             const diagnosis = anomaly ? diagnose(sourceHistory) : s.d3Diagnosis;
             const prediction = sourceHistory.length > 6 ? predict(sourceHistory) : s.d3Prediction;
-            const altRoutes = s.d3Source === 'D1' ? newD1.alternateRoutes : newD2.alternateRoutes;
+            const altRoutes = resolveD3AltRoutes(s.d3Source, newD1, newD2);
             const rawMitigation = (diagnosis || prediction) ? recommendMitigation(prediction, diagnosis, altRoutes) : null;
 
             // Every analysis cycle recomputes a brand-new object even when
@@ -342,7 +359,7 @@ export const useSimStore = create<SimulationStore>()(
               // confusion matrix live from here on; otherwise tag nothing —
               // tagTimelineWithVerification() fills every past event in one
               // shot the moment the user actually reveals it.
-              const rawHistory = s.d3Source === 'D1' ? newD1.telemetryHistory : newD2.telemetryHistory;
+              const rawHistory = resolveD3History(s.d3Source, newD1, newD2);
               const liveGt = s.d3GroundTruthRevealed ? rawHistory[rawHistory.length - 1]?.groundTruth : undefined;
               newTimeline.push(makeTimelineEvent(
                 'DIAGNOSIS_UPDATED',
@@ -631,14 +648,21 @@ export const useSimStore = create<SimulationStore>()(
           type: 'satellite' as const,
           altitudeKm: 600,
           inclinationDeg: 45,
-          // Choose an orbital phase with generous angular separation from existing satellites.
+          // Place the new satellite in the largest open orbital gap. This
+          // distributes added satellites around the full orbit instead of
+          // stacking them near the ground station on the right side.
           trueAnomalyRad: (() => {
-            const existing = s.d2.satellites.map(item => item.trueAnomalyRad);
-            const candidates = Array.from({ length: 36 }, (_, i) => (i * Math.PI * 2 / 36) + Math.random() * 0.025);
-            const score = (angle: number) => existing.length
-              ? Math.min(...existing.map(old => Math.abs(Math.atan2(Math.sin(angle - old), Math.cos(angle - old)))))
-              : Math.random() * Math.PI;
-            return candidates.sort((a, b) => score(b) - score(a))[0] ?? Math.random() * Math.PI * 2;
+            const existing = s.d2.satellites
+              .map(item => ((item.trueAnomalyRad % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI))
+              .sort((a, b) => a - b);
+            if (existing.length === 0) return 0;
+            let bestStart = existing[0], largestGap = -1;
+            existing.forEach((angle, i) => {
+              const next = i === existing.length - 1 ? existing[0] + 2 * Math.PI : existing[i + 1];
+              const gap = next - angle;
+              if (gap > largestGap) { largestGap = gap; bestStart = angle; }
+            });
+            return (bestStart + largestGap / 2) % (2 * Math.PI);
           })(),
           raanDeg: (count * 137.508 + Math.random() * 22) % 360,
           supportedWavelengths: [1550] as Wavelength[],
@@ -705,9 +729,20 @@ export const useSimStore = create<SimulationStore>()(
       },
 
       clearD2Disturbances: () => {
-        set(st => ({
-          d2: { ...st.d2, activeDisturbances: [] },
-        }));
+        // Ground↔Space and Space↔Space are independent, simultaneously-live
+        // links — "restore normal" only clears whichever one is currently
+        // selected, leaving any disturbance on the other link untouched.
+        set(st => {
+          const groundIds = new Set(st.d2.groundStations.map(g => g.id));
+          return {
+            d2: {
+              ...st.d2,
+              activeDisturbances: st.d2.activeDisturbances.filter(
+                d => !disturbanceBelongsToD2Mode(d, groundIds, st.d2.linkType)
+              ),
+            },
+          };
+        });
       },
 
       setD2AutoReroute: (enabled) => set({ d2AutoReroute: enabled }),
@@ -783,9 +818,7 @@ export const useSimStore = create<SimulationStore>()(
 
       revealGroundTruth: () => {
         const s = get();
-        const sourceHistory = s.d3Source === 'D1'
-          ? s.d1.telemetryHistory
-          : s.d2.telemetryHistory;
+        const sourceHistory = resolveD3History(s.d3Source, s.d1, s.d2);
 
         const latestSample = sourceHistory[sourceHistory.length - 1];
         const gt = latestSample?.groundTruth;
@@ -855,6 +888,9 @@ export const useSimStore = create<SimulationStore>()(
         const timeline = [...s.d3Timeline, makeTimelineEvent('MITIGATION_ACCEPTED', `Mitigation accepted: ${s.d3Mitigation.primaryAction}`, s.simTimeS)];
 
         if (s.d3Mitigation.primaryAction === 'SWITCH_ROUTE' && s.d3Mitigation.recommendedRoute) {
+          // Only the D2 link Dashboard 2 is actively routing (`isD2SourcePrimary`)
+          // ever has alternate routes to recommend — resolveD3AltRoutes returns
+          // [] for the secondary link, so this action is never reachable there.
           if (s.d3Source === 'D1') {
             get()._applyD1Route(s.d3Mitigation.recommendedRoute.nodeIds, 'MITIGATION');
             set(st => ({
@@ -887,7 +923,9 @@ export const useSimStore = create<SimulationStore>()(
           set(st => ({
             ...(s.d3Source === 'D1'
               ? { d1: { ...st.d1, patState: reacquire(st.d1.patState) } }
-              : { d2: { ...st.d2, patState: reacquire(st.d2.patState) } }),
+              : isD2SourcePrimary(s.d3Source, st.d2)
+                ? { d2: { ...st.d2, patState: reacquire(st.d2.patState) } }
+                : { d2: { ...st.d2, secondaryPatState: reacquire(st.d2.secondaryPatState) } }),
             d3Mitigation: { ...st.d3Mitigation!, acceptedAt: st.simTimeS },
             d3Timeline: timeline,
           }));
@@ -898,7 +936,9 @@ export const useSimStore = create<SimulationStore>()(
           set(st => ({
             ...(s.d3Source === 'D1'
               ? { d1: { ...st.d1, patState: boost(st.d1.patState) } }
-              : { d2: { ...st.d2, patState: boost(st.d2.patState) } }),
+              : isD2SourcePrimary(s.d3Source, st.d2)
+                ? { d2: { ...st.d2, patState: boost(st.d2.patState) } }
+                : { d2: { ...st.d2, secondaryPatState: boost(st.d2.secondaryPatState) } }),
             d3Mitigation: { ...st.d3Mitigation!, acceptedAt: st.simTimeS },
             d3Timeline: timeline,
           }));
@@ -932,10 +972,16 @@ export const useSimStore = create<SimulationStore>()(
 
         // Auto-inject the disturbance after 10 seconds (done by startSimulation + watch)
         // The hidden disturbance is injected by the store, NOT shown to D3
-        const { injectD1Disturbance, injectD2Disturbance, startSimulation } = get();
+        const { injectD1Disturbance, injectD2Disturbance, startSimulation, setD2LinkType } = get();
 
-        // Set source
-        set({ d3Source: tc.dashboard });
+        // Set source — D2 test cases also carry which sub-link they exercise,
+        // so keep Dashboard 2's actual selection and D3's sub-dashboard in sync.
+        if (tc.dashboard === 'D2') {
+          setD2LinkType(tc.linkType === 'SAT_SAT' ? 'sat_sat' : 'ground_sat');
+          set({ d3Source: tc.linkType === 'SAT_SAT' ? 'D2_SPACE_SPACE' : 'D2_GROUND_SPACE' });
+        } else {
+          set({ d3Source: 'D1' });
+        }
 
         // Schedule disturbance injection after 10s
         setTimeout(() => {
@@ -954,61 +1000,10 @@ export const useSimStore = create<SimulationStore>()(
         set({ activeTestCaseId: null });
       },
 
-      // ── Simulation Runs ─────────────────────────────────────────────────
-      startRun: () => {
-        const s = get();
-        const runId = `run_${Date.now()}`;
-        const newRun: SimulationRun = {
-          id: runId,
-          startTime: Date.now(),
-          endTime: null,
-          dashboard: s.d3Source,
-          linkType: s.d3Source === 'D1' ? 'GROUND_GROUND' : 'GROUND_SAT',
-          testCaseId: s.activeTestCaseId,
-          disturbanceType: s.d3Source === 'D1'
-            ? (s.d1.activeDisturbances[0]?.type ?? null)
-            : (s.d2.activeDisturbances[0]?.type ?? null),
-          durationS: 0,
-          diagnosis: null,
-          verification: null,
-          mitigation: null,
-          result: null,
-        };
-        set(st => ({
-          simulationRuns: [...st.simulationRuns, newRun],
-          activeRunId: runId,
-        }));
-      },
-
-      endRun: () => {
-        const s = get();
-        if (!s.activeRunId) return;
-        set(st => ({
-          simulationRuns: st.simulationRuns.map(r => {
-            if (r.id !== s.activeRunId) return r;
-            return {
-              ...r,
-              endTime: Date.now(),
-              durationS: s.simTimeS,
-              diagnosis: s.d3Diagnosis,
-              verification: s.d3Verification,
-              mitigation: s.d3Mitigation,
-            };
-          }),
-          activeRunId: null,
-        }));
-      },
-
-      openRunInD3: (_runId) => {
-        // Display run in D3 — for MVP we just switch to the right source
-        // A full implementation would replay the run's telemetry
-        set({ d3Source: 'D1' });
-      },
     }),
     {
       name: 'fsoc-testbed-storage',
       partialize: (state) => ({
-        simulationRuns: state.simulationRuns.slice(-50),
         testCases: state.testCases,
         speed: state.speed,
       }),

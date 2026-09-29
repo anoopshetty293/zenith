@@ -7,7 +7,7 @@
 
 import React, { useState } from 'react';
 import { Brain, AlertCircle, ChevronRight, ChevronDown } from 'lucide-react';
-import { useSimStore } from '../../store/simulationStore';
+import { useSimStore, resolveD3History } from '../../store/simulationStore';
 import { CauseHypothesis } from '@/types/intelligence';
 import { InfoToggle, InfoNote } from './PanelInfo';
 
@@ -100,7 +100,7 @@ const DiagnosisPanel: React.FC = () => {
   const [showInfo, setShowInfo] = useState(false);
 
   // Need at least 8 telemetry samples for diagnosis
-  const history = d3Source === 'D1' ? d1.telemetryHistory : d2.telemetryHistory;
+  const history = resolveD3History(d3Source, d1, d2);
   const hasEnoughData = history.length >= 8;
 
   // ─── INSUFFICIENT DATA ────────────────────────────────────────────────────

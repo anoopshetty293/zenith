@@ -1,6 +1,7 @@
 /** Dashboard 2 orbital scene: stylized 3D Earth, visible orbital tracks, objects and live disturbance overlays. */
 import { useEffect, useRef } from 'react';
 import { useSimStore } from '../../store/simulationStore';
+import { disturbanceBelongsToD2Mode } from '../../simulation/disturbances';
 
 const W = 760, H = 500, CX = W / 2, CY = H / 2 + 8, ER = 112;
 const STARS = Array.from({ length: 190 }, (_, i) => {
@@ -44,10 +45,16 @@ export default function OrbitalCanvas() {
     if (!canvas || !ctx) return;
     const draw = () => {
       const { d2 } = useSimStore.getState();
-      const { satellites, debris, groundStations, primaryLink, activeDisturbances, linkType, activeRoute } = d2;
+      const { satellites, debris, groundStations, primaryLink, activeDisturbances: allActiveDisturbances, linkType, activeRoute } = d2;
+      // Ground↔Space and Space↔Space run independently — the overlay only ever
+      // reflects a disturbance that actually targets whichever is selected.
+      const groundIdSet = new Set(groundStations.map(g => g.id));
+      const activeDisturbances = allActiveDisturbances.filter(dist => disturbanceBelongsToD2Mode(dist, groundIdSet, linkType));
+      // Keep Earth fixed for a stable orbital reference; `rotation` below is
+      // only the animation clock for live effects and disturbance overlays.
       rotationRef.current += 0.003;
       const rotation = rotationRef.current;
-      const landShift = Math.sin(rotation) * 42;
+      const earthRotation = 0;
       ctx.clearRect(0, 0, W, H);
       const bg = ctx.createLinearGradient(0, 0, W, H); bg.addColorStop(0, '#050b18'); bg.addColorStop(1, '#020611');
       ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
@@ -97,11 +104,11 @@ export default function OrbitalCanvas() {
         // Greenland
         [[-55,-94],[-36,-86],[-39,-68],[-54,-61],[-66,-76]],
       ];
-      const spin = rotation * .32;
+      const spin = earthRotation * .32;
       land.forEach(poly => {
         ctx.beginPath();
         poly.forEach(([x,y],j) => {
-          const rotatedX = x * Math.cos(spin) - y * Math.sin(spin) * .12 + landShift * .35;
+          const rotatedX = x * Math.cos(spin) - y * Math.sin(spin) * .12;
           const px = CX + rotatedX;
           const py = CY + y;
           j ? ctx.lineTo(px,py) : ctx.moveTo(px,py);
@@ -117,12 +124,12 @@ export default function OrbitalCanvas() {
       ctx.globalAlpha = .12; ctx.strokeStyle = '#d6efff'; ctx.lineWidth = 4;
       for (let i = 0; i < 5; i++) {
         const yy = CY - 74 + i * 37;
-        ctx.beginPath(); ctx.ellipse(CX - 12 + Math.sin(rotation * 1.3 + i) * 18, yy, ER * (.48 + (i % 2) * .12), 7, -.12, .15, Math.PI - .15); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(CX - 12 + Math.sin(earthRotation * 1.3 + i) * 18, yy, ER * (.48 + (i % 2) * .12), 7, -.12, .15, Math.PI - .15); ctx.stroke();
       }
       ctx.globalAlpha = 1;
       ctx.strokeStyle = 'rgba(135,213,255,.22)'; ctx.lineWidth = 1;
       for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.ellipse(CX, CY + k * 28, ER * Math.sqrt(Math.max(.08, 1 - (k * .2) ** 2)), 10 + Math.abs(k) * 3, 0, 0, Math.PI * 2); ctx.stroke(); }
-      ctx.beginPath(); ctx.ellipse(CX + Math.sin(rotation) * ER * .32, CY, Math.max(5, ER * .45 * Math.abs(Math.cos(rotation))), ER, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(CX, CY, ER * .45, ER, 0, 0, Math.PI * 2); ctx.stroke();
       // Shadow on the right edge gives the globe a spherical terminator.
       const shade = ctx.createLinearGradient(CX - ER, CY, CX + ER, CY); shade.addColorStop(0, 'rgba(0,0,0,0)'); shade.addColorStop(.55, 'rgba(0,0,0,.08)'); shade.addColorStop(1, 'rgba(0,0,0,.78)'); ctx.fillStyle = shade; ctx.fillRect(CX-ER,CY-ER,ER*2,ER*2);
       ctx.restore();

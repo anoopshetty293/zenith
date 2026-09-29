@@ -3,6 +3,7 @@ import { Radio, Wifi, WifiOff, Signal, Activity } from 'lucide-react';
 import { useSimStore } from '../../store/simulationStore';
 import { LinkStatus } from '../../types/links';
 import { routeLabel } from '../../simulation/routing';
+import Term from '../shared/Term';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -179,7 +180,7 @@ const LinkStatusPanel: React.FC = () => {
         </div>
         <div className="mt-1">
           <div className="flex justify-between text-[9px] text-fsoc-dim mb-0.5">
-            <span>Confidence</span>
+            <span><Term glossaryKey="Confidence Score">Confidence</Term></span>
             <span className="font-mono">{(patState.detectionConfidence * 100).toFixed(0)}%</span>
           </div>
           <div className="h-1 bg-fsoc-bg rounded-full overflow-hidden">

@@ -3,6 +3,7 @@ import { Cpu, Radio, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Plu
 import { useSimStore } from '../../store/simulationStore';
 import { GroundStation, Wavelength, wavelengthIntersection, ALL_WAVELENGTHS } from '../../types/nodes';
 import { Link, LinkStatus } from '../../types/links';
+import Term from '../shared/Term';
 import { D1_SOURCE_ID, D1_DEST_ID, D1_MAX_NODES } from '../../simulation/engine';
 import { groundHopLink, groundGeo, shortNodeName } from '../../simulation/routing';
 
@@ -155,7 +156,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
             <div className="flex justify-between"><span className="text-fsoc-dim">TX Power</span><span className="font-mono text-fsoc-cyan">{node.txPowerDbm} dBm</span></div>
             <div className="flex justify-between"><span className="text-fsoc-dim">RX Sens.</span><span className="font-mono text-fsoc-cyan">{node.rxSensitivityDbm} dBm</span></div>
             <div className="flex justify-between">
-              <span className="text-fsoc-dim">PAT</span>
+              <span className="text-fsoc-dim"><Term>PAT</Term></span>
               <span className={`font-mono ${node.hasPAT ? 'text-fsoc-green' : 'text-fsoc-red'}`}>{node.hasPAT ? '✓ YES' : '✗ NO'}</span>
             </div>
             <div className="col-span-2 flex justify-between"><span className="text-fsoc-dim">Beam Div.</span><span className="font-mono text-fsoc-cyan">{node.beamDivergenceUrad} μrad</span></div>

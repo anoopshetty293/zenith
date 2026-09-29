@@ -139,12 +139,12 @@ export default function D1Dashboard() {
                 <div className="rounded-lg border border-fsoc-border bg-black/10 p-3">
                   <div className="text-[9px] font-mono uppercase tracking-[0.18em] text-[var(--zen-mute)] mb-2">What PAT is doing</div>
                   <div className="grid grid-cols-4 gap-1.5">
-                    {[
+                    {([
                       ['1', 'DETECT', d1.patState.detectionConfidence > 0.2],
                       ['2', 'COMPARE', d1.patState.pointingErrorUrad < 180],
                       ['3', 'REORIENT', d1.patState.gimbalRateDegS > 1 || d1.patState.pointingErrorUrad > 25],
                       ['4', 'LOCK', d1.patState.trackingStatus === 'LOCKED'],
-                    ].map(([n, label, active]) => (
+                    ] as [string, string, boolean][]).map(([n, label, active]) => (
                       <div key={label} className={clsx('min-w-0 rounded-md border px-1 py-2 text-center transition-all', active ? 'border-fsoc-cyan/40 bg-fsoc-cyan/5' : 'border-fsoc-border/60 bg-black/10')}>
                         <div className={clsx('text-[10px] font-mono', active ? 'text-fsoc-cyan' : 'text-[var(--zen-mute)]')}>{n}</div>
                         <div className={clsx('text-[8px] font-mono mt-0.5', active ? 'text-[var(--zen-ink)]' : 'text-[var(--zen-mute)]')}>{label}</div>
